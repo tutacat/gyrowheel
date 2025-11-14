@@ -1,6 +1,7 @@
 # Gyro Wheel WebSocket API Specification
 
 ## Overview
+
 The Gyro Wheel web app streams device-orientation data to a configurable WebSocket
 endpoint. Once the user enables the device gyroscope and connects to a server, the
 app publishes normalized wheel rotation updates and lifecycle notifications. This
@@ -12,6 +13,7 @@ object contains a `type` field used for routing and can include additional field
 depending on the message.
 
 ## Connection Lifecycle
+
 1. **Connect** – When the user taps **Connect**, the app opens a WebSocket to the
    configured URL. If successful, it immediately sends a `wheel.status` message
    with `status: "connected"`.
@@ -29,40 +31,45 @@ responsiveness and bandwidth.
 ## Message Types
 
 ### `wheel.status`
+
 Lifecycle updates about the socket connection and publishing state.
 
-| Field      | Type     | Description                                                     |
-| ---------- | -------- | --------------------------------------------------------------- |
-| `type`     | string   | Constant string `"wheel.status"`.                               |
-| `timestamp`| string   | ISO 8601 timestamp indicating when the event was emitted.       |
-| `status`   | string   | One of `"connected"`, `"paused"`, `"resumed"`.                  |
-| `channel`  | string   | (Optional) Identifier from the **Channel** field in the UI.     |
+| Field       | Type   | Description                                               |
+| ----------- | ------ | --------------------------------------------------------- |
+| `type`      | string | Constant string `"wheel.status"`.                         |
+| `timestamp` | string | ISO 8601 timestamp indicating when the event was emitted. |
+| `status`    | string | One of `"connected"`, `"paused"`, `"resumed"`.            |
+| `channel`   | string | Identifier from the **Channel** field in the UI.          |
 
 **Notes**
-- A `"connected"` status is always sent immediately after a successful WebSocket
-  handshake.
+
+- A `"connected"` or `"paused"` status is always sent immediately after a
+  successful WebSocket handshake, reflecting the current publish state.
 - When the user toggles pause, the app sends `"paused"` or `"resumed"` as the status
   and keeps the socket open. While paused, no rotation telemetry is transmitted.
 
 ### `wheel.rotation`
+
 Periodic wheel orientation measurements normalized to the user-defined symmetric
 rotation bounds.
 
-| Field       | Type     | Description                                                     |
-| ----------- | -------- | --------------------------------------------------------------- |
-| `type`      | string   | Constant string `"wheel.rotation"`.                            |
-| `timestamp` | string   | ISO 8601 timestamp for the reading.                             |
-| `angle`     | number   | Current wheel angle in degrees after clamping to the range.     |
-| `unit`      | string   | Constant string `"deg"`.                                       |
-| `channel`   | string   | Identifier mirroring the **Channel** UI field (defaults `wheel`).|
+| Field       | Type   | Description                                                       |
+| ----------- | ------ | ----------------------------------------------------------------- |
+| `type`      | string | Constant string `"wheel.rotation"`.                               |
+| `timestamp` | string | ISO 8601 timestamp for the reading.                               |
+| `angle`     | number | Current wheel angle in degrees after clamping to the range.       |
+| `unit`      | string | Constant string `"deg"`.                                          |
+| `channel`   | string | Identifier mirroring the **Channel** UI field (defaults `wheel`). |
 
 **Notes**
+
 - The reported `angle` is constrained to half the configured total range (e.g.
   `±90` degrees when the range is `180`).
 - Rotation data is only sent when the socket is connected, not paused, and the
   40 ms throttling interval has elapsed.
 
 ## Server Expectations
+
 - Servers should accept and parse JSON payloads conforming to the tables above.
 - Responses are optional; the current client does not consume inbound messages,
   but the protocol leaves room for future bidirectional commands.
@@ -70,6 +77,7 @@ rotation bounds.
   stop publishing updates until the user reconnects.
 
 ## Versioning
+
 This specification describes the initial stable API shipped with the Gyro Wheel
 app. Backward-incompatible changes will be documented with versioned updates to
 this file. Servers should ignore unrecognized fields to remain forward-compatible.

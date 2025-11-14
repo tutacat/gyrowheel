@@ -1,69 +1,110 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gyro Wheel</title>
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body>
-  <main class="layout">
-    <header>
-      <h1>Gyro Wheel</h1>
-      <button type="button" id="sensor-toggle" hx-on:click="window.wheelController.enableSensor(event)">
-        Enable Gyroscope
-      </button>
-    </header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gyro Wheel</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header>
+        <h1>Gyro Wheel</h1>
+        <button
+          type="button"
+          id="sensor-toggle"
+          hx-on:click="window.wheelController.enableSensor(event)"
+        >
+          Enable Gyroscope
+        </button>
+      </header>
 
-    <section class="wheel-panel">
-      <div
-        class="wheel"
-        id="wheel"
-        aria-label="virtual wheel"
-        role="img"
-        hx-on:click="window.wheelController.recenter(event)"
-      >
-        <div class="wheel__hub"></div>
-        <div class="wheel__spoke wheel__spoke--e"></div>
-        <div class="wheel__spoke wheel__spoke--s"></div>
-        <div class="wheel__spoke wheel__spoke--w"></div>
-      </div>
-      <output id="rotation-readout" class="readout" for="wheel">0°</output>
-    </section>
-
-    <section class="controls">
-      <form id="bounds-form" class="controls__group" hx-on:change="window.wheelController.updateBounds(event)">
-        <h2>Rotation Bounds</h2>
-        <label>
-          Total Range (°)
-          <input type="number" name="range" value="180" min="0" step="1" />
-        </label>
-      </form>
-
-      <form id="socket-form" class="controls__group" hx-on:change="window.wheelController.configureSocket(event)">
-        <div class="controls__heading">
-          <h2>WebSocket</h2>
-          <span id="socket-status" class="status-pill" role="status" aria-live="polite">Disconnected</span>
+      <section class="wheel-panel">
+        <div
+          class="wheel"
+          id="wheel"
+          aria-label="virtual wheel"
+          role="img"
+          hx-on:click="window.wheelController.recenter(event)"
+        >
+          <div class="wheel__hub"></div>
+          <div class="wheel__spoke wheel__spoke--e"></div>
+          <div class="wheel__spoke wheel__spoke--s"></div>
+          <div class="wheel__spoke wheel__spoke--w"></div>
         </div>
-        <label>
-          Server URL
-          <input type="url" name="url" placeholder="wss://example.com/gyro" />
-        </label>
-        <label>
-          Channel
-          <input type="text" name="channel" value="wheel" />
-        </label>
-        <div class="controls__actions">
-          <button type="button" id="socket-connect" hx-on:click="window.wheelController.connectSocket(event)">Connect</button>
-          <button type="button" id="socket-disconnect" hx-on:click="window.wheelController.disconnectSocket(event)">Disconnect</button>
-          <button type="button" id="socket-pause" hx-on:click="window.wheelController.togglePause(event)">Pause</button>
-        </div>
-        <span id="socket-error" class="controls__error" role="status" aria-live="polite"></span>
-      </form>
-    </section>
-  </main>
+        <output id="rotation-readout" class="readout" for="wheel">0°</output>
+      </section>
 
-  <script type="module" src="./wheel.js"></script>
-</body>
+      <section class="controls">
+        <form
+          id="bounds-form"
+          class="controls__group"
+          hx-on:change="window.wheelController.updateBounds(event)"
+        >
+          <h2>Rotation Bounds</h2>
+          <label>
+            Total Range (°)
+            <input type="number" name="range" value="180" min="0" step="1" />
+          </label>
+        </form>
+
+        <form
+          id="socket-form"
+          class="controls__group"
+          hx-on:change="window.wheelController.configureSocket(event)"
+        >
+          <div class="controls__heading">
+            <h2>WebSocket</h2>
+            <span
+              id="socket-status"
+              class="status-pill"
+              role="status"
+              aria-live="polite"
+              >Disconnected</span
+            >
+          </div>
+          <label>
+            Server URL
+            <input type="url" name="url" placeholder="wss://example.com/gyro" />
+          </label>
+          <label>
+            Channel
+            <input type="text" name="channel" value="wheel" />
+          </label>
+          <div class="controls__actions">
+            <button
+              type="button"
+              id="socket-connect"
+              hx-on:click="window.wheelController.connectSocket(event)"
+            >
+              Connect
+            </button>
+            <button
+              type="button"
+              id="socket-disconnect"
+              hx-on:click="window.wheelController.disconnectSocket(event)"
+            >
+              Disconnect
+            </button>
+            <button
+              type="button"
+              id="socket-pause"
+              hx-on:click="window.wheelController.togglePause(event)"
+            >
+              Pause
+            </button>
+          </div>
+          <span
+            id="socket-error"
+            class="controls__error"
+            role="status"
+            aria-live="polite"
+          ></span>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="./wheel.js"></script>
+  </body>
 </html>
