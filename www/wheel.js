@@ -1,326 +1,264 @@
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const statusTone = {
-  default: "",
-  connecting: "status-pill--connecting",
-  connected: "status-pill--connected",
-  paused: "status-pill--paused",
-  error: "status-pill--error",
+
+const STATUS_CLASSES = {
+  default: '',
+  connecting: 'status-pill--connecting',
+  connected: 'status-pill--connected',
+  paused: 'status-pill--paused',
+  error: 'status-pill--error',
 };
 
-const els = {
-  wheel: document.getElementById("wheel"),
-  readout: document.getElementById("rotation-readout"),
-  sensorButton: document.getElementById("sensor-toggle"),
-  socketForm: document.getElementById("socket-form"),
-  socketStatus: document.getElementById("socket-status"),
-  socketError: document.getElementById("socket-error"),
-  pauseButton: document.getElementById("socket-pause"),
-};
-
-const state = {
-  range: 180,
-  bounds: { min: -90, max: 90 },
-  rotation: 0,
-  reference: null,
-  socket: null,
-  socketUrl: "",
-  channel: "wheel",
-  paused: false,
-  error: false,
-  lastSent: 0,
-};
-
-const sanitizeRange = (value) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return state.range;
-  return Math.max(0, parsed);
-};
-
-const computeBounds = (range) => {
-  const half = range / 2;
-  return { min: -half, max: half };
-};
-
-const setStatus = (label, tone = "default") => {
-  if (!els.socketStatus) return;
-  els.socketStatus.textContent = label;
-  Object.values(statusTone).forEach((className) => {
-    if (className) els.socketStatus.classList.remove(className);
-  });
-  const className = statusTone[tone];
-  if (className) els.socketStatus.classList.add(className);
-};
-
-const showError = (message) => {
-  if (!els.socketError) return;
-  els.socketError.textContent = message;
-};
-
-const updatePauseButton = () => {
-  if (!els.pauseButton) return;
-  const readyState = state.socket ? state.socket.readyState : WebSocket.CLOSED;
-  els.pauseButton.textContent = state.paused ? "Resume" : "Pause";
-  els.pauseButton.disabled = readyState !== WebSocket.OPEN;
-};
-
-const updateButtonsForSocket = () => {
-  const connectBtn = document.getElementById("socket-connect");
-  const disconnectBtn = document.getElementById("socket-disconnect");
-  const readyState = state.socket ? state.socket.readyState : WebSocket.CLOSED;
-  if (connectBtn)
-    connectBtn.disabled =
-      readyState === WebSocket.CONNECTING || readyState === WebSocket.OPEN;
-  if (disconnectBtn)
-    disconnectBtn.disabled =
-      readyState !== WebSocket.CONNECTING && readyState !== WebSocket.OPEN;
-  updatePauseButton();
-};
-
-const renderRotation = () => {
-  const value = Number(state.rotation.toFixed(1));
-  els.wheel?.style.setProperty("--wheel-angle", String(value));
-  if (els.readout) els.readout.value = `${value.toFixed(1)}°`;
-};
-
-const sendMessage = (type, payload) => {
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-  state.socket.send(
-    JSON.stringify({
-      type,
-      timestamp: new Date().toISOString(),
-      channel: state.channel,
-      ...payload,
-    }),
-  );
-};
-
-const sendRotation = () => {
-  const now = performance.now();
-  if (now - state.lastSent < 40) return;
-  state.lastSent = now;
-  sendMessage("wheel.rotation", {
-    angle: state.rotation,
-    unit: "deg",
-  });
-};
-
-const maybePublish = () => {
-  if (state.paused) return;
-  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) return;
-  sendRotation();
-};
-
-const normalizeAngle = (angle) => {
-  let value = angle % 360;
-  if (value > 180) value -= 360;
-  if (value < -180) value += 360;
-  return value;
-};
-
-const handleOrientation = (event) => {
-  if (event.absolute === false && event.alpha === null) return;
-  const raw = typeof event.alpha === "number" ? event.alpha : 0;
-  const angle = normalizeAngle(raw);
-  if (state.reference === null) state.reference = angle;
-  const delta = normalizeAngle(angle - state.reference);
-  state.rotation = clamp(-delta, state.bounds.min, state.bounds.max);
-  renderRotation();
-  maybePublish();
-};
-
-const enableSensor = (event) => {
-  event.preventDefault();
-  if (!els.sensorButton || els.sensorButton.disabled) return;
-  if (typeof window.DeviceOrientationEvent === "undefined") {
-    els.sensorButton.textContent = "Unsupported";
-    return;
+class WheelController {
+  constructor() {
+    this.boundsRange = 180;
+    this.bounds = this.computeBounds(this.boundsRange);
+    this.channel = 'wheel';
+    this.socketUrl = '';
+    this.socket = null;
+    this.errorState = false;
+    this.paused = false;
+    this.wheel = document.getElementById('wheel');
+    this.readout = document.getElementById('rotation-readout');
+    this.sensorButton = document.getElementById('sensor-toggle');
+    this.socketForm = document.getElementById('socket-form');
+    this.socketStatus = document.getElementById('socket-status');
+    this.socketError = document.getElementById('socket-error');
+    this.pauseButton = document.getElementById('socket-pause');
+    this.lastSent = 0;
+    this.rotation = 0;
+    this.reference = null;
+    this.handleOrientation = this.handleOrientation.bind(this);
+    window.addEventListener('beforeunload', () => this.closeSocket());
+    this.updatePauseButton();
+    this.setStatus('Disconnected');
   }
-  const attach = () => {
-    window.addEventListener("deviceorientation", handleOrientation, true);
-    els.sensorButton.disabled = true;
-    els.sensorButton.textContent = "Gyroscope Active";
-    state.reference = null;
-  };
-  if (
-    typeof DeviceOrientationEvent !== "undefined" &&
-    typeof DeviceOrientationEvent.requestPermission === "function"
-  ) {
-    DeviceOrientationEvent.requestPermission()
-      .then((result) => {
-        if (result !== "granted") throw new Error("denied");
-        attach();
+
+  enableSensor(event) {
+    event.preventDefault();
+    if (this.sensorButton.disabled) return;
+    if (typeof window.DeviceOrientationEvent === 'undefined') {
+      this.sensorButton.textContent = 'Unsupported';
+      return;
+    }
+    this.requestPermission()
+      .then(() => {
+        window.addEventListener('deviceorientation', this.handleOrientation, true);
+        this.sensorButton.disabled = true;
+        this.sensorButton.textContent = 'Gyroscope Active';
+        this.reference = null;
       })
-      .catch(() => {
-        els.sensorButton.textContent = "Permission Needed";
+      .catch((error) => {
+        console.error(error);
+        this.sensorButton.textContent = 'Permission Needed';
       });
-  } else {
-    attach();
   }
-};
 
-const updateBounds = (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const range = sanitizeRange(form.range.value);
-  state.range = range;
-  state.bounds = computeBounds(range);
-  form.range.value = String(range);
-  state.rotation = clamp(state.rotation, state.bounds.min, state.bounds.max);
-  renderRotation();
-  maybePublish();
-};
+  async requestPermission() {
+    if (
+      typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function'
+    ) {
+      const response = await DeviceOrientationEvent.requestPermission();
+      if (response !== 'granted') {
+        throw new Error('Gyroscope permission denied');
+      }
+    }
+  }
 
-const recenter = (event) => {
-  event.preventDefault();
-  state.reference = null;
-  state.rotation = 0;
-  renderRotation();
-  state.lastSent = 0;
-  maybePublish();
-};
-
-const readSocketForm = () => {
-  if (!els.socketForm) return;
-  state.socketUrl = (els.socketForm.url.value || "").trim();
-  const channel = (els.socketForm.channel.value || "wheel").trim();
-  state.channel = channel || "wheel";
-};
-
-const configureSocket = (event) => {
-  event.preventDefault();
-  readSocketForm();
-  showError("");
-};
-
-const onSocketOpen = (event) => {
-  if (event.target !== state.socket) return;
-  setStatus(
-    state.paused ? "Paused" : "Connected",
-    state.paused ? "paused" : "connected",
-  );
-  sendMessage("wheel.status", {
-    status: state.paused ? "paused" : "connected",
-  });
-  updateButtonsForSocket();
-  maybePublish();
-};
-
-const onSocketClose = (event) => {
-  if (event.target !== state.socket) return;
-  state.socket = null;
-  if (!state.error) setStatus("Disconnected");
-  state.error = false;
-  updateButtonsForSocket();
-};
-
-const onSocketError = (event) => {
-  if (event.target !== state.socket) return;
-  state.error = true;
-  showError("WebSocket error occurred.");
-  setStatus("Error", "error");
-  event.target.close();
-};
-
-const waitForSocketClose = (socket) =>
-  new Promise((resolve) => {
-    if (!socket) {
-      resolve();
+  updateBounds(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const nextRange = Math.max(0, Number(form.range.value));
+    if (Number.isNaN(nextRange)) {
       return;
     }
-    if (socket.readyState === WebSocket.CLOSED) {
-      resolve();
+    this.boundsRange = nextRange;
+    this.bounds = this.computeBounds(nextRange);
+    form.range.value = nextRange;
+    this.rotation = clamp(this.rotation, this.bounds.min, this.bounds.max);
+    this.render();
+  }
+
+  recenter(event) {
+    event.preventDefault();
+    this.reference = null;
+    this.rotation = 0;
+    this.render();
+    this.lastSent = 0;
+    this.maybeSend();
+  }
+
+  configureSocket(event) {
+    event.preventDefault();
+    this.readSocketForm();
+    this.showError('');
+  }
+
+  connectSocket(event) {
+    event.preventDefault();
+    this.readSocketForm();
+    if (!this.socketUrl) {
+      this.showError('Enter a WebSocket URL before connecting.');
       return;
     }
-    const handleClose = (event) => {
-      if (event.target !== socket) return;
-      socket.removeEventListener("close", handleClose);
-      resolve();
-    };
-    socket.addEventListener("close", handleClose);
-  });
-
-const closeSocket = async () => {
-  const socket = state.socket;
-  if (!socket) {
-    state.error = false;
-    setStatus("Disconnected");
-    updateButtonsForSocket();
-    return;
+    this.openSocket();
   }
-  try {
-    socket.close();
-  } catch (error) {
-    // Ignore close errors; we'll treat the socket as closed once the event fires.
-  }
-  await waitForSocketClose(socket);
-  if (state.socket === socket) {
-    state.socket = null;
-    if (!state.error) setStatus("Disconnected");
-    state.error = false;
-    updateButtonsForSocket();
-  }
-};
 
-const openSocket = async () => {
-  await closeSocket();
-  state.error = false;
-  setStatus("Connecting…", "connecting");
-  showError("");
-  try {
-    const socket = new WebSocket(state.socketUrl);
-    state.socket = socket;
-    socket.addEventListener("open", onSocketOpen);
-    socket.addEventListener("close", onSocketClose);
-    socket.addEventListener("error", onSocketError);
-  } catch (error) {
-    showError(error?.message || "Failed to connect.");
-    setStatus("Error", "error");
-    state.socket = null;
+  disconnectSocket(event) {
+    event.preventDefault();
+    this.closeSocket();
+    this.showError('');
   }
-  updateButtonsForSocket();
-};
 
-const connectSocket = async (event) => {
-  event.preventDefault();
-  readSocketForm();
-  if (!state.socketUrl) {
-    showError("Enter a WebSocket URL before connecting.");
-    return;
+  togglePause(event) {
+    event.preventDefault();
+    this.paused = !this.paused;
+    this.updatePauseButton();
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.setStatus(this.paused ? 'Paused' : 'Connected', this.paused ? 'paused' : 'connected');
+      this.sendMessage('wheel.status', { status: this.paused ? 'paused' : 'resumed' });
+    } else {
+      this.setStatus('Disconnected');
+    }
   }
-  await openSocket();
-};
 
-const disconnectSocket = async (event) => {
-  event.preventDefault();
-  await closeSocket();
-  showError("");
-};
+  openSocket() {
+    this.closeSocket();
+    this.errorState = false;
+    this.setStatus('Connecting…', 'connecting');
+    this.showError('');
+    try {
+      this.socket = new WebSocket(this.socketUrl);
+      this.socket.addEventListener('open', () => {
+        this.setStatus(this.paused ? 'Paused' : 'Connected', this.paused ? 'paused' : 'connected');
+        this.sendMessage('wheel.status', { status: 'connected' });
+      });
+      this.socket.addEventListener('close', () => {
+        this.socket = null;
+        if (!this.errorState) {
+          this.setStatus('Disconnected');
+        }
+        this.errorState = false;
+        this.updatePauseButton();
+      });
+      this.socket.addEventListener('error', () => {
+        this.errorState = true;
+        this.showError('WebSocket error occurred.');
+        this.setStatus('Error', 'error');
+        if (this.socket) {
+          this.socket.close();
+        }
+      });
+    } catch (error) {
+      this.showError(error.message || 'Failed to connect.');
+      this.setStatus('Error', 'error');
+      this.socket = null;
+    }
+  }
 
-const togglePause = (event) => {
-  event.preventDefault();
-  state.paused = !state.paused;
-  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-    const tone = state.paused ? "paused" : "connected";
-    setStatus(state.paused ? "Paused" : "Connected", tone);
-    sendMessage("wheel.status", {
-      status: state.paused ? "paused" : "resumed",
+  closeSocket() {
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+    }
+    this.errorState = false;
+    this.setStatus('Disconnected');
+    this.updatePauseButton();
+  }
+
+  handleOrientation(event) {
+    if (event.absolute === false && event.alpha === null) {
+      return;
+    }
+    const raw = typeof event.alpha === 'number' ? event.alpha : 0;
+    const angle = this.normalize(raw);
+    if (this.reference === null) {
+      this.reference = angle;
+    }
+    const delta = this.normalize(angle - this.reference);
+    this.rotation = clamp(-delta, this.bounds.min, this.bounds.max);
+    this.render();
+    this.maybeSend();
+  }
+
+  normalize(angle) {
+    let value = angle % 360;
+    if (value > 180) value -= 360;
+    if (value < -180) value += 360;
+    return value;
+  }
+
+  render() {
+    const rounded = Number.parseFloat(this.rotation.toFixed(1));
+    this.wheel.style.setProperty('--wheel-angle', String(rounded));
+    this.readout.value = `${rounded.toFixed(1)}°`;
+  }
+
+  maybeSend() {
+    if (this.paused) {
+      return;
+    }
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const now = performance.now();
+    if (now - this.lastSent < 40) {
+      return;
+    }
+    this.lastSent = now;
+    this.sendMessage('wheel.rotation', {
+      angle: this.rotation,
+      unit: 'deg',
+      channel: this.channel,
     });
-  } else {
-    setStatus("Disconnected");
   }
-  updatePauseButton();
-};
 
-window.addEventListener("beforeunload", closeSocket);
-renderRotation();
-updateButtonsForSocket();
+  sendMessage(type, payload) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      const message = {
+        type,
+        timestamp: new Date().toISOString(),
+        ...payload,
+      };
+      this.socket.send(JSON.stringify(message));
+    }
+  }
 
-window.wheelController = {
-  enableSensor,
-  updateBounds,
-  recenter,
-  configureSocket,
-  connectSocket,
-  disconnectSocket,
-  togglePause,
-};
+  readSocketForm() {
+    if (!this.socketForm) return;
+    this.socketUrl = this.socketForm.url.value.trim();
+    const channel = (this.socketForm.channel.value || 'wheel').trim();
+    this.channel = channel || 'wheel';
+  }
+
+  setStatus(label, tone = 'default') {
+    if (!this.socketStatus) return;
+    this.socketStatus.textContent = label;
+    Object.values(STATUS_CLASSES).forEach((className) => {
+      if (className) {
+        this.socketStatus.classList.remove(className);
+      }
+    });
+    const className = STATUS_CLASSES[tone] || STATUS_CLASSES.default;
+    if (className) {
+      this.socketStatus.classList.add(className);
+    }
+  }
+
+  showError(message) {
+    if (!this.socketError) return;
+    this.socketError.textContent = message;
+  }
+
+  updatePauseButton() {
+    if (!this.pauseButton) return;
+    this.pauseButton.textContent = this.paused ? 'Resume' : 'Pause';
+  }
+
+  computeBounds(range) {
+    const half = range / 2;
+    return { min: -half, max: half };
+  }
+}
+
+window.wheelController = new WheelController();
