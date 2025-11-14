@@ -126,6 +126,7 @@ header button:disabled {
   color: #f8fafc;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  cursor: default;
 }
 
 .status-pill--connecting {
