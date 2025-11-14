@@ -203,3 +203,7 @@ header button:disabled {
     align-items: stretch;
   }
 }
+
+.status-pill {
+  cursor: default;
+}
